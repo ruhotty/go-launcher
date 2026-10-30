@@ -1,71 +1,40 @@
 using System.Text.RegularExpressions;
-using GoLauncher.Models;
 using Microsoft.Win32;
-
+using GoLauncher.Models;
 namespace GoLauncher.Services;
-
 public sealed class SteamLibraryService
 {
-    public string? FindSteamPath()
-    {
-        var candidates = new[]
-        {
-            Registry.GetValue(@"HKEY_CURRENT_USER\Software\Valve\Steam", "SteamPath", null) as string,
-            Registry.GetValue(@"HKEY_LOCAL_MACHINE\SOFTWARE\WOW6432Node\Valve\Steam", "InstallPath", null) as string,
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "Steam")
-        };
-
-        return candidates.FirstOrDefault(p => !string.IsNullOrWhiteSpace(p) && Directory.Exists(p));
-    }
-
     public IReadOnlyList<SteamGame> GetInstalledGames()
     {
-        var steamPath = FindSteamPath();
-        if (steamPath is null) return [];
-
-        var libraries = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { steamPath };
-        var libraryFile = Path.Combine(steamPath, "steamapps", "libraryfolders.vdf");
-
-        if (File.Exists(libraryFile))
-        {
-            var text = File.ReadAllText(libraryFile);
-            foreach (Match match in Regex.Matches(text, @"""path""\s*""([^""]+)"""))
-            {
-                var path = match.Groups[1].Value.Replace(@"\\", @"\");
-                if (Directory.Exists(path)) libraries.Add(path);
-            }
-        }
-
+        var roots = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        try {
+            using var key = Registry.CurrentUser.OpenSubKey(@"Software\Valve\Steam");
+            var path = key?.GetValue("SteamPath") as string;
+            if (!string.IsNullOrWhiteSpace(path)) roots.Add(path.Replace('/', '\\'));
+        } catch { }
+        roots.Add(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "Steam"));
         var games = new List<SteamGame>();
-        foreach (var library in libraries)
-        {
-            var steamApps = Path.Combine(library, "steamapps");
-            if (!Directory.Exists(steamApps)) continue;
-
-            foreach (var manifest in Directory.EnumerateFiles(steamApps, "appmanifest_*.acf"))
-            {
-                try
-                {
-                    var text = File.ReadAllText(manifest);
-                    var appId = Regex.Match(text, @"""appid""\s+""?(\d+)""?").Groups[1].Value;
-                    var name = Regex.Match(text, @"""name""\s+""([^""]+)""").Groups[1].Value;
-                    var installDir = Regex.Match(text, @"""installdir""\s+""([^""]+)""").Groups[1].Value;
-                    if (string.IsNullOrWhiteSpace(appId) || string.IsNullOrWhiteSpace(name)) continue;
-
-                    games.Add(new SteamGame
-                    {
-                        AppId = appId,
-                        Name = name,
-                        InstallDirectory = Path.Combine(steamApps, "common", installDir)
-                    });
+        foreach (var root in roots) {
+            var libraries = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { root };
+            var vdf = Path.Combine(root, "steamapps", "libraryfolders.vdf");
+            if (File.Exists(vdf)) {
+                var text = File.ReadAllText(vdf);
+                foreach (Match m in Regex.Matches(text, @"""path""\s*""([^""]+)"""))
+                    libraries.Add(m.Groups[1].Value.Replace("\\\\", "\\"));
+            }
+            foreach (var lib in libraries) {
+                var folder = Path.Combine(lib, "steamapps");
+                if (!Directory.Exists(folder)) continue;
+                foreach (var file in Directory.EnumerateFiles(folder, "appmanifest_*.acf")) {
+                    try {
+                        var data = File.ReadAllText(file);
+                        string Get(string key) => Regex.Match(data, $@"""{key}""\s*""([^""]*)""").Groups[1].Value;
+                        var id = Get("appid"); var name = Get("name"); var dir = Get("installdir");
+                        if (id.Length > 0 && name.Length > 0) games.Add(new SteamGame(id, name, dir));
+                    } catch { }
                 }
-                catch (IOException) { }
-                catch (UnauthorizedAccessException) { }
             }
         }
-
-        return games.OrderBy(g => g.Name, StringComparer.CurrentCultureIgnoreCase).ToList();
+        return games.GroupBy(g => g.AppId).Select(g => g.First()).OrderBy(g => g.Name).ToList();
     }
-
-    public bool IsSteamRunning() => System.Diagnostics.Process.GetProcessesByName("steam").Length > 0;
 }
