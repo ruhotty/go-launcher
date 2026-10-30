@@ -1,8 +1,7 @@
 name: Build and release
 on:
   push:
-    tags:
-      - 'v*'
+    branches: [main]
   workflow_dispatch:
 permissions:
   contents: write
@@ -22,6 +21,7 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: v1.0-beta
           name: Go Launcher 1.0 Beta
           prerelease: true
           generate_release_notes: true
