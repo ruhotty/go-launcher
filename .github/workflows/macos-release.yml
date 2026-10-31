@@ -1,0 +1,45 @@
+name: Build macOS app
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "macos-v*"
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Apple Silicon
+        run: swift build -c release --arch arm64
+      - name: Build Intel
+        run: swift build -c release --arch x86_64
+      - name: Create universal app bundle
+        run: |
+          APP="GoLauncher.app"
+          mkdir -p "$APP/Contents/MacOS"
+          lipo -create .build/arm64-apple-macosx/release/GoLauncherMac .build/x86_64-apple-macosx/release/GoLauncherMac -output "$APP/Contents/MacOS/GoLauncher"
+          cat > "$APP/Contents/Info.plist" <<'PLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+          <key>CFBundleExecutable</key><string>GoLauncher</string>
+          <key>CFBundleIdentifier</key><string>nl.ruhotty.golauncher</string>
+          <key>CFBundleName</key><string>Go Launcher</string>
+          <key>CFBundlePackageType</key><string>APPL</string>
+          <key>CFBundleShortVersionString</key><string>1.0</string>
+          <key>LSMinimumSystemVersion</key><string>13.0</string>
+          <key>NSHighResolutionCapable</key><true/>
+          </dict></plist>
+          PLIST
+          codesign --force --deep --sign - "$APP"
+          ditto -c -k --sequesterRsrc --keepParent "$APP" GoLauncher-macOS-universal.zip
+      - name: Publish macOS release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Go Launcher macOS ${{ github.ref_name }}
+          prerelease: true
+          generate_release_notes: true
+          files: GoLauncher-macOS-universal.zip
