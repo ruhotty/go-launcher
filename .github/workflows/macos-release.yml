@@ -1,9 +1,10 @@
 name: Build macOS app
 on:
-  workflow_dispatch:
   push:
+    branches: [main]
     tags:
       - "macos-v*"
+  workflow_dispatch:
 permissions:
   contents: write
 jobs:
@@ -13,9 +14,12 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build Apple Silicon
         run: swift build -c release --arch arm64
+        working-directory: macOS
       - name: Build Intel
         run: swift build -c release --arch x86_64
+        working-directory: macOS
       - name: Create universal app bundle
+        working-directory: macOS
         run: |
           APP="GoLauncher.app"
           mkdir -p "$APP/Contents/MacOS"
@@ -35,6 +39,12 @@ jobs:
           PLIST
           codesign --force --deep --sign - "$APP"
           ditto -c -k --sequesterRsrc --keepParent "$APP" GoLauncher-macOS-universal.zip
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: GoLauncher-macOS-universal
+          path: macOS/GoLauncher-macOS-universal.zip
+          if-no-files-found: error
       - name: Publish macOS release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
@@ -42,4 +52,4 @@ jobs:
           name: Go Launcher macOS ${{ github.ref_name }}
           prerelease: true
           generate_release_notes: true
-          files: GoLauncher-macOS-universal.zip
+          files: macOS/GoLauncher-macOS-universal.zip
