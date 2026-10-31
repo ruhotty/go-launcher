@@ -13,13 +13,18 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 8.0.x
+      - name: Convert app icon
+        shell: pwsh
+        run: |
+          choco install imagemagick --yes --no-progress
+          magick src/GoLauncher/Assets/GoLauncher.svg -background none -define icon:auto-resize=256,128,64,48,32,16 src/GoLauncher/Assets/GoLauncher.ico
       - name: Publish single-file Windows app
         run: dotnet publish src/GoLauncher/GoLauncher.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:IncludeAllContentForSelfExtract=true -p:EnableCompressionInSingleFile=true -p:DebugType=None -p:DebugSymbols=false
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v2.0
-          name: Go Launcher 2.0
+          tag_name: v2.0.1
+          name: Go Launcher 2.0.1
           prerelease: false
           generate_release_notes: true
           files: src/GoLauncher/bin/Release/net8.0-windows/win-x64/publish/GoLauncher.exe
